@@ -3,8 +3,20 @@ from asgiref.sync import async_to_sync
 from channels.db import database_sync_to_async
 from api.models import Chat, Inbox
 from api.serializer import chatSerializer
+from api.custom_auth import websocket_auth
+from rest_framework.exceptions import AuthenticationFailed
 
 class chatConsumer(AsyncJsonWebsocketConsumer):
+
+    @database_sync_to_async
+    def get_user_from_token(self, token):
+        try:
+            user, error = websocket_auth(token=token)
+            if not error is None:
+                return
+            return str(user.id)
+        except Exception as e:
+            raise AuthenticationFailed("Invalid token")
 
     @database_sync_to_async
     def save_message(self, content):
@@ -16,7 +28,7 @@ class chatConsumer(AsyncJsonWebsocketConsumer):
             }
             serializer = chatSerializer(data=data)
             if not serializer.is_valid():
-                print(serializer.errors)
+                print(serializer.errors, self.room_group_name)
                 return False
             serializer.save()
             inbox = Inbox.objects.get(id=self.room_group_name)
@@ -29,29 +41,50 @@ class chatConsumer(AsyncJsonWebsocketConsumer):
         
 
     async def connect(self):
-        self.room_group_name = self.scope['url_route']['kwargs']['inbox_id']
-        if self.room_group_name:
-            await self.channel_layer.group_add(self.room_group_name, self.channel_name)
-            await self.accept()
-        else:
-            await self.disconnect()
+        self.room_group_name = None
+        await self.accept()
     
     async def receive_json(self, content, **kwargs):
-        print(self.room_group_name)
-        saved = await self.save_message(content)
-        if not saved:
-            return self.send_json({"type": "error", "message": "Unable to save message"})
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                "type": "send_message",
-                "data": {
-                    "message": content['message'],
-                    "sender": content['sender']
-                },
-            }
-        )
-    
+        message_type = content['type']
+
+        if message_type == 'message':
+            saved = await self.save_message(content)
+            if not saved:
+                return await self.send_json({"type": "error", "message": "Unable to save message"})
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    "type": "send_message",
+                    "data": {
+                        "message": content['message'],
+                        "sender": content['sender'],
+                    },
+                }
+            )
+            await self.channel_layer.group_send(
+                content['receiver'],
+                {
+                    "type": "send_message",
+                    "data": {
+                        "type": "notification",
+                        "inbox": self.room_group_name,
+                        "message": content['message']
+                    }
+                }
+            )
+        elif message_type == 'join_room':
+            if self.room_group_name:
+                await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+            self.room_group_name = content['room']
+            await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+        elif message_type == 'auth':
+            token = content['token']
+            try:
+                userId = await self.get_user_from_token(token)
+                await self.channel_layer.group_add(userId, self.channel_name)
+            except Exception as e:
+                print(e)
+                await self.disconnect()
     async def disconnect(self, code):
         await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
         print("1 user disconnected!")
