@@ -23,6 +23,16 @@ class CustomAuth(BaseAuthentication):
             return (user, None)
         except (InvalidTokenError, ExpiredSignatureError, User.DoesNotExist) as e:
             raise AuthenticationFailed("Invalid token!")
+    
+    def websocket_auth(self, token):
+        try:
+            payload = jwt.decode(jwt=token, key=settings.SECRET_KEY,algorithms='HS256')
+            self.verify_token(payload=payload)
+            user_id = payload['id']
+            user = User.objects.get(id=user_id)
+            return (user, None)
+        except (InvalidTokenError, ExpiredSignatureError, User.DoesNotExist) as e:
+            raise AuthenticationFailed("Invalid token!")
 
     def get_token(self, request):
         auth_header = request.headers.get('Authorization', None)
@@ -37,6 +47,27 @@ class CustomAuth(BaseAuthentication):
         return token
 
     def verify_token(self, payload):
+        if 'exp' not in payload:
+            raise InvalidTokenError("Token has no expriration")
+        exp_time = payload['exp']
+        current_time = datetime.now().timestamp()
+        if current_time > exp_time:
+            raise ExpiredSignatureError("Token expired!")
+
+
+
+
+def websocket_auth( token):
+        try:
+            payload = jwt.decode(jwt=token, key=settings.SECRET_KEY,algorithms='HS256')
+            verify_token(payload=payload)
+            user_id = payload['id']
+            user = User.objects.get(id=user_id)
+            return (user, None)
+        except (InvalidTokenError, ExpiredSignatureError, User.DoesNotExist) as e:
+            raise AuthenticationFailed("Invalid token!")
+
+def verify_token( payload):
         if 'exp' not in payload:
             raise InvalidTokenError("Token has no expriration")
         exp_time = payload['exp']
