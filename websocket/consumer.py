@@ -8,6 +8,16 @@ from rest_framework.exceptions import AuthenticationFailed
 
 class chatConsumer(AsyncJsonWebsocketConsumer):
 
+
+    @database_sync_to_async
+    def update_chat_seen(self, chat_id):
+        try:
+            chat = Chat.objects.get(id=chat_id)
+            chat.seen = True
+            chat.save()
+        except Exception as e:
+            print(e)
+
     @database_sync_to_async
     def get_user_from_token(self, token):
         try:
@@ -34,10 +44,10 @@ class chatConsumer(AsyncJsonWebsocketConsumer):
             inbox = Inbox.objects.get(id=self.room_group_name)
             inbox.last_message = data['message']
             inbox.save()
-            return True
+            return serializer.data
         except Exception as e:
             print(e)
-            return False
+            return None
         
 
     async def connect(self):
@@ -58,6 +68,8 @@ class chatConsumer(AsyncJsonWebsocketConsumer):
                     "data": {
                         "message": content['message'],
                         "sender": content['sender'],
+                        "id": saved['id'],
+                        "receiver": content['receiver']
                     },
                 }
             )
@@ -85,6 +97,12 @@ class chatConsumer(AsyncJsonWebsocketConsumer):
             except Exception as e:
                 print(e)
                 await self.disconnect()
+        elif message_type == 'msg_seen':
+            msg_id = content['id']
+            try:
+                await self.update_chat_seen(msg_id)
+            except Exception as e:
+                print(e)
     async def disconnect(self, code):
         await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
         print("1 user disconnected!")

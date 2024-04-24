@@ -99,7 +99,8 @@ class AcceptFriendRequestSerializer(serializers.Serializer):
 class chatSerializer(serializers.ModelSerializer):
     class Meta:
         model = Chat
-        fields = ['message', 'sender', 'inbox']
+        fields = ['message', 'sender', 'inbox', 'id', 'seen']
+        read_only_fields = ['id', 'seen']
 
 
 class inboxSerializer(serializers.ModelSerializer):
